@@ -6,6 +6,7 @@
 
 from typing import List, Optional
 
+import time
 import networkx as nx
 import torch
 
@@ -130,6 +131,9 @@ def build_full_graph(
                 layer, token, c_resid_ffn[batch_i, token].item()
             )
 
+    graph = builder.graph
+    path = (f"/rampart-stor/richard-2/llm-transparency-tool/graphs/full_graph_{int(time.time())}.adjlist")
+    #nx.write_gml(graph, path)
     return builder.graph
 
 
@@ -159,5 +163,6 @@ def build_paths_to_predictions(
         tree = search_graph.edge_subgraph(edges)
         # Reverse the edges because the dfs was going from upper layer downwards.
         result.append(tree.reverse())
-
+        path = (f"/rampart-stor/richard-2/llm-transparency-tool/graphs/partial_graph_{int(time.time())}_{start}.adjlist")
+        #nx.write_gml(result[-1], path)
     return result

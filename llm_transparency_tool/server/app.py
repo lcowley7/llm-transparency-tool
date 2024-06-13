@@ -48,8 +48,7 @@ from llm_transparency_tool.server.utils import (
 from llm_transparency_tool.server.monitor import SystemMonitor
 
 from networkx.classes.digraph import DiGraph
-
-
+#st.cache_resource.clear()
 @st.cache_resource(
     hash_funcs={
         nx.Graph: id,
@@ -528,9 +527,9 @@ class App:
 
         with st.sidebar.expander("Graph", expanded=True):
             self._contribution_threshold = st.slider(
-                min_value=0.01,
+                min_value=0.00,
                 max_value=0.1,
-                step=0.01,
+                step=0.001,
                 value=0.04,
                 format=r"%.3f",
                 label="Contribution threshold",
@@ -544,12 +543,36 @@ class App:
             self._stateful_model = cached_run_inference_and_populate_state(self.stateful_model, [self.sentence])
 
         with autocast(enabled=self.amp_enabled, device_type="cuda", dtype=self.dtype):
+            base_model = cached_run_inference_and_populate_state(self.stateful_model, ["I can go on the trip because the tickets were"])
+        d = self._stateful_model._last_run.cache.cache_dict
+        assert(isinstance(d, dict), type(d))
+        for key in d:
+            d[key] -= base_model._last_run.cache.cache_dict[key]
+        self._stateful_model._last_run.logits -= base_model._last_run.logits
+
+        with autocast(enabled=self.amp_enabled, device_type="cuda", dtype=self.dtype):
             self._graph = get_contribution_graph(
                 self.stateful_model,
                 self.model_key,
                 self.stateful_model.tokens()[B0].tolist(),
                 (self._contribution_threshold if self._renormalize_after_threshold else 0.0),
             )
+
+
+#        with autocast(enabled=self.amp_enabled, device_type="cuda", dtype=self.dtype):
+#            base_graph = get_contribution_graph(
+#                base_model,
+#                self.model_key,
+#                self.stateful_model.tokens()[B0].tolist(),
+#                (self._contribution_threshold if self._renormalize_after_threshold else 0.0),
+#            )
+#        for u, v, a in self._graph.edges(data=True):
+#            for key, value in a.items():
+#                self._graph[u][v][key] = value - base_graph[u][v][key]
+#        for v, a in self._graph.nodes(data=True):
+#            for key, value in a.items():
+#                self._graph[v][key] = value - base_graph[v][key]
+
 
     def draw_graph_and_selection(
         self,

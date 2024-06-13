@@ -50,7 +50,8 @@ def load_hooked_transformer(
         center_writing_weights=False,
         center_unembed=False,
         device=tlens_device,
-        # n_devices=n_devices,
+        n_devices=8,
+        move_to_device=True,
         dtype=dtype,
     )
     tlens_model.eval()
@@ -229,6 +230,8 @@ class TransformerLensTransparentLlm(TransparentLlm):
         # Take activations right before they're multiplied by W_out, i.e. non-linearity
         # and layer norm are already applied.
         processed_activations = self._get_block(layer, "mlp.hook_post")[batch_i][pos]
+        if processed_activations.get_device() != self._model.W_out[layer].get_device():
+            procssed_activations = processed_activations.to(self._model.W_out[layer].get_device())
         return torch.mul(processed_activations.unsqueeze(-1), self._model.W_out[layer])
 
     @typechecked
@@ -284,8 +287,8 @@ class TransformerLensTransparentLlm(TransparentLlm):
             raise self._run_exception
         hook_v = self._get_block(layer, "attn.hook_v")[batch_i]
         b_v = self._model.b_V[layer]
-        v = hook_v + b_v
-        pattern = self._get_block(layer, "attn.hook_pattern")[batch_i].to(v.dtype)
+        v = hook_v.cpu() + b_v.cpu()
+        pattern = self._get_block(layer, "attn.hook_pattern")[batch_i].to(v.dtype).cpu()
         z = einsum(
             "key_pos head d_head, "
             "head query_pos key_pos -> "
@@ -297,7 +300,7 @@ class TransformerLensTransparentLlm(TransparentLlm):
             "pos key_pos head d_head, "
             "head d_head d_model -> "
             "pos key_pos head d_model",
-            z,
-            self._model.W_O[layer],
+            z.type(torch.float32),
+            self._model.W_O[layer].cpu().type(torch.float32),
         )
         return decomposed_attn

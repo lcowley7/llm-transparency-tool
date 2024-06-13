@@ -4,7 +4,7 @@
     "debug": true,
     "models": {
         "": null,
-
+	"LLM360/K2": null, 
         "gpt2": null,
         "distilgpt2": null,
         "facebook/opt-125m": null,

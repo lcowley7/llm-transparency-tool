@@ -36,8 +36,7 @@ def get_contributions(
     for each v_: sum(over p_ of result(p_, v_)) = 1.
     """
     EPS = 1e-5
-    parts = parts.cpu()
-    whole = whole.cpu()
+
     k = len(parts.shape) - len(whole.shape)
     assert k >= 0
     assert parts.shape[k:] == whole.shape
@@ -72,9 +71,6 @@ def get_contributions_with_one_off_part(
     1. contributions tensor for the `parts`
     2. contributions tensor for the `one_off` vector
     """
-    parts = parts.cpu()
-    one_off = one_off.cpu()
-    whole = whole.cpu()
     assert one_off.shape == whole.shape
 
     k = len(parts.shape) - len(whole.shape)

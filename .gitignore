@@ -5,3 +5,8 @@
 .mypy_cache/
 __pycache__/
 .DS_Store
+llm_transparency_tool.egg-info/
+**/frontend/.pnp.cjs
+**/frontend/.pnp.loader.mjs
+**/frontend/yarn.lock
+

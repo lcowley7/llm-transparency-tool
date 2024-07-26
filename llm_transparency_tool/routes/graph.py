@@ -94,7 +94,7 @@ def build_full_graph(
     n_tokens = model.tokens()[batch_i].shape[0]
 
     builder = GraphBuilder(n_layers, n_tokens)
-
+    
     for layer in range(n_layers):
         c_attn, c_resid_attn = contributions.get_attention_contributions(
             resid_pre=model.residual_in(layer)[batch_i].unsqueeze(0),

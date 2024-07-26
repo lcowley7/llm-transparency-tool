@@ -38,11 +38,19 @@ def load_hooked_transformer(
     hf_model: Optional[transformers.PreTrainedModel] = None,
     tlens_device: str = "cuda",
     dtype: torch.dtype = torch.float32,
+    model_revision: Optional[str] = None,
 ):
     # if tlens_device == "cuda":
     #     n_devices = torch.cuda.device_count()
     # else:
     #     n_devices = 1
+
+    from_pretrained_kwargs = {}
+    if not model_revision is None:
+        from_pretrained_kwargs = {
+            "revision": model_revision,
+        }
+
     tlens_model = transformer_lens.HookedTransformer.from_pretrained(
         model_name,
         hf_model=hf_model,
@@ -52,6 +60,7 @@ def load_hooked_transformer(
         device=tlens_device,
         # n_devices=n_devices,
         dtype=dtype,
+        **from_pretrained_kwargs
     )
     tlens_model.eval()
     return tlens_model
@@ -80,6 +89,7 @@ class TransformerLensTransparentLlm(TransparentLlm):
         tokenizer: Optional[transformers.PreTrainedTokenizer] = None,
         device: str = "gpu",
         dtype: torch.dtype = torch.float32,
+        model_revision: Optional[str] = None,
     ):
         if device == "gpu":
             self.device = "cuda"
@@ -101,6 +111,10 @@ class TransformerLensTransparentLlm(TransparentLlm):
         self._run_exception = RuntimeError(
             "Tried to use the model output before calling the `run` method"
         )
+        
+        self.__loaded_model = None
+        
+        self._model_revision = model_revision
 
     def copy(self):
         import copy
@@ -108,21 +122,26 @@ class TransformerLensTransparentLlm(TransparentLlm):
 
     @property
     def _model(self):
-        tlens_model = load_hooked_transformer(
-            self._model_name,
-            hf_model=self.hf_model,
-            tlens_device=self.device,
-            dtype=self.dtype,
-        )
+        # TODO: Original implementation always reload the model here, why?
+        if self.__loaded_model is None:
+            tlens_model = load_hooked_transformer(
+                self._model_name,
+                hf_model=self.hf_model,
+                tlens_device=self.device,
+                dtype=self.dtype,
+                model_revision=self._model_revision,
+            )
 
-        if self.hf_tokenizer is not None:
-            tlens_model.set_tokenizer(self.hf_tokenizer, default_padding_side="left")
+            if self.hf_tokenizer is not None:
+                tlens_model.set_tokenizer(self.hf_tokenizer, default_padding_side="left")
 
-        tlens_model.set_use_attn_result(True)
-        tlens_model.set_use_attn_in(False)
-        tlens_model.set_use_split_qkv_input(False)
-
-        return tlens_model
+            tlens_model.set_use_attn_result(True)
+            tlens_model.set_use_attn_in(False)
+            tlens_model.set_use_split_qkv_input(False)
+            
+            self.__loaded_model = tlens_model
+            
+        return self.__loaded_model
 
     def model_info(self) -> ModelInfo:
         cfg = self._model.cfg

@@ -12,6 +12,7 @@ import networkx as nx
 import pandas as pd
 import plotly.express
 import plotly.graph_objects as go
+import plotly.io as pio
 import streamlit as st
 import streamlit_extras.row as st_row
 import torch
@@ -268,6 +269,9 @@ class App:
         fig.update_coloraxes(showscale=False)
 
         st.plotly_chart(fig, use_container_width=True, theme=None)
+        
+        # out_file_name = "_".join(tokens) + ".pdf"
+        # pio.write_image(fig, out_file_name, format="pdf")
 
     def draw_attn_info(self, edge: UiGraphEdge, container_attention_map) -> Optional[int]:
         """
@@ -548,8 +552,8 @@ class App:
                 base_sent, contrast_sent = self.sentence.split(" ||| ")
 
                 # set self._stateful_model to be the base model
-                self._stateful_model = cached_run_inference_and_populate_state(self.stateful_model,base_sent)
-                contrast_state = cached_run_inference_and_populate_state(self.stateful_model,contrast_sent)                
+                self._stateful_model = cached_run_inference_and_populate_state(self.stateful_model, base_sent)
+                contrast_state = cached_run_inference_and_populate_state(self.stateful_model, contrast_sent)                
                 is_pair_mode = True
                 
                 n_tokens_base = self._stateful_model.tokens()[B0].shape[0]                

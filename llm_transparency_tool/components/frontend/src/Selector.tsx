@@ -148,6 +148,24 @@ const Selector = ({ args }: ComponentProps) => {
         hasTemperature,
     ])
 
+    // const downloadSVG = () => {
+    //     const svg = svgRef.current;
+    //     if (!svg) {
+    //         console.error("SVG reference is null.");
+    //         return;
+    //     }
+    //     const svgData = new XMLSerializer().serializeToString(svg);
+    //     const svgBlob = new Blob([svgData], { type: 'image/svg+xml;charset=utf-8' });
+    //     const svgUrl = URL.createObjectURL(svgBlob);
+    //     const downloadLink = document.createElement('a');
+    //     downloadLink.href = svgUrl;
+    //     downloadLink.download = 'graph.svg';
+    //     document.body.appendChild(downloadLink);
+    //     downloadLink.click();
+    //     document.body.removeChild(downloadLink);
+    // }
+
+
     return <svg ref={svgRef} width={totalW} height={totalH}></svg>
 }
 

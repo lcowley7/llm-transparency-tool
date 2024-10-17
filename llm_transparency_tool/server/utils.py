@@ -12,7 +12,7 @@ import statistics
 import streamlit as st
 import torch
 import transformers
-from pyvis.network import Network
+
 
 import llm_transparency_tool.routes.graph
 from llm_transparency_tool.models.tlens_model import TransformerLensTransparentLlm
@@ -180,22 +180,8 @@ def st_placeholder(
 
 def contrast_graphs(graph1: nx.Graph, graph2: nx.Graph) -> nx.Graph:
     """
-    I think this implements Hector's contrastive method, but I'm not certain, his thesis is vague about how E(G1) - E(G2) is calculated
-    I could potentially add abs() in somewhere if there is bugs.
+    No longer used, this was my attempt at implementing Hector's method, I'm now just using his original
     """
-
-    def save_interactive_graph(graph, title, filename):
-        net = Network(height="1000px", width="1000px", notebook=True)
-        
-        # Add nodes and edges
-        for node in graph.nodes:
-            net.add_node(node, label=str(node))
-            
-        for u, v, data in graph.edges(data=True):
-            net.add_edge(u, v, value=abs(data['weight']), title=str(data['weight']))
-        
-        net.show_buttons(filter_=['physics'])  # Optional: show physics options for layout adjustment
-        net.show(filename)
 
     
     def median_edge_weight(graph: nx.Graph) -> float:

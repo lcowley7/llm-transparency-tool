@@ -4,13 +4,6 @@
 # This source code is licensed under the license found in the
 # LICENSE file in the root directory of this source tree.
 
-<<<<<<< HEAD
-
-# command to call to run:  set PYTHONPATH=E:\AI Research\info_flow2\llm-transparency-tool && streamlit run llm_transparency_tool/server/app.py -- config/local.json
-=======
-# when running this use command: set PYTHONPATH=E:\AI Research\info_flow\llm-transparency-tool && streamlit run llm_transparency_tool/server/app.py -- config/local.json
-# run in CMD
->>>>>>> 9f8285f51ceef455a342a0081e13c4589c428ae8
 
 import argparse
 from dataclasses import dataclass, field
@@ -27,7 +20,6 @@ import torch
 from jaxtyping import Float
 from torch.amp import autocast
 from transformers import HfArgumentParser
-from pyvis.network import Network
 
 import llm_transparency_tool.components
 from llm_transparency_tool.models.tlens_model import TransformerLensTransparentLlm
@@ -90,7 +82,6 @@ def cached_run_inference_and_populate_state(
 ):
     stateful_model = stateless_model.copy()
     stateful_model.run(sentences)
-    print(stateful_model)
     return stateful_model
 
 
@@ -557,24 +548,6 @@ class App:
             self._renormalize_after_threshold = st.checkbox("Renormalize after threshold", value=True)
             self._normalize_before_unembedding = st.checkbox("Normalize before unembedding", value=True)
 
-        with st.sidebar.expander("Contrastive Method", expanded=False):
-            # Create the select box
-            options = ['Normal', 'Contrastive']
-            selected_option = st.selectbox("Choose an mode:", options, index=options.index('Normal'))
-            st.session_state.op_mode = selected_option
-            text_input_1 = st.text_input("String 1:")
-            text_input_2 = st.text_input("String 2:")
-            st.session_state.contr_str_1 = text_input_1
-            st.session_state.contr_str_2 = text_input_2
-            if (st.button("Contrast Strings") and st.session_state.op_mode == 'Contrastive'):
-                self.operation_mode = 'Contrastive'
-            else:
-                self.operation_mode = "Normal"
-
-        if self.operation_mode == "Contrastive":
-            self.cons_str1 = st.session_state.contr_str_1
-            self.cons_str2 = st.session_state.contr_str_2
-            print(self.cons_str1)
 
     def run_inference(self):
         # We added pair mode to contrast results of two sentences.
@@ -596,13 +569,6 @@ class App:
             else:
                 self._stateful_model = cached_run_inference_and_populate_state(self.stateful_model, [self.sentence])
 
-        # Contrasting the logits is not suitable for visualization.
-        # if is_pair_mode:
-        #     d = self._stateful_model._last_run.cache.cache_dict
-        #     assert(isinstance(d, dict), type(d))
-        #     for key in d:
-        #         d[key] -= contrast_state._last_run.cache.cache_dict[key]
-        #     self._stateful_model._last_run.logits -= contrast_state._last_run.logits
 
         if is_pair_mode:
             with autocast(enabled=self.amp_enabled, device_type="cuda", dtype=self.dtype):
@@ -642,7 +608,7 @@ class App:
 
     def run_contrastive_inference(self):
         """
-        This is where I will attempt to replicate the run_inference() method for the contrastive case, where I want to create 2 graphs and subtract them from eachother.
+        I will leave this here for now, but this isn't the currently used method, for now we just use hector's method
         """
 
         ### before we get here, we need to have a copy of each model and each sentence
@@ -672,26 +638,10 @@ class App:
     def draw_graph_and_selection(
         self,
     ) -> None:
-        """
-        Docstring relevant for the contrastive method only
-        This means that what I'm doing is showing the contrastive graph, but the actual model information and sentence is sentence 2 and model2
-        The effect of this is there may be a disconnect between the graph, and the promoted tokens we see and so forth.
-        """
         (
             container_graph,
             container_tokens,
         ) = st.columns(self.render_settings.column_proportions)        
-        # # Define CSS for horizontal scrolling
-        # scroll_css = """
-        # <style>
-        # .scrollable {
-        #     overflow-x: auto;
-        #     white-space: nowrap;
-        # }
-        # </style>
-        # """
-        # # Inject CSS into the Streamlit app
-        # st.markdown(scroll_css, unsafe_allow_html=True)
 
         container_graph_left, container_graph_right = container_graph.columns([5, 1])
 
@@ -706,19 +656,6 @@ class App:
         container_token_dynamics.write('##### Promoted Tokens')
         container_token_dynamics_used = False
 
-# review here
-        #if self.operation_mode == "Contrastive":
-    # maybe this section here isn't helpful
-         #   self.sentence = self.cons_str2
-          #  self._stateful_model = self._contrastive_model2
-           # self._graph = self._contrast_graph
-
-                
-        # with container_graph_left:
-        #     # Add scrollable css to the div wrapping left graph
-        #     st.markdown('<div class="scrollable">', unsafe_allow_html=True)
-
-
         try:
 
             if self.sentence is None:
@@ -726,8 +663,6 @@ class App:
 
             with container_graph_left:
                 selection = self.draw_graph(self._contribution_threshold if not self._renormalize_after_threshold else 0.0) 
-                # # Close scrollable css div               
-                # st.markdown('</div>', unsafe_allow_html=True)
 
 
             if selection is None:
@@ -791,10 +726,9 @@ class App:
             st.warning("No sentence selected")
         else:
             with torch.inference_mode():
-                if(self.operation_mode == "Contrastive"):
-                    self.run_contrastive_inference()
-                # may need to adjust here to reflect that I will eventually want to use my created graph, not their own
-                # I think it might just be easiest to override their graph
+                #if(self.operation_mode == "Contrastive"):
+                #    self.run_contrastive_inference()
+
                 self.run_inference()
 
         self.draw_graph_and_selection()

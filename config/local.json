@@ -7,7 +7,7 @@
 
         "meta-llama/Meta-Llama-3-8B": null,
         "meta-llama/Meta-Llama-3-70B": null,
-        "meta-llama/Meta-Llama-3-8B-Instruct": null,
+        "meta-llama/Meta-Llama-3-8B-Instruct": "E:/AI Research//meta-llama//Meta-Llama-3-8B-Instruct",
         "meta-llama/Meta-Llama-3-70B-Instruct": null,
         "mistral/mixtral-instruct": null,
 

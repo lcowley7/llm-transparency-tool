@@ -36,7 +36,8 @@ class _RunInfo:
 )
 def load_hooked_transformer(
     model_name: str,
-    hf_model: Optional[transformers.PreTrainedModel] = None,
+    _hf_model: Optional[transformers.PreTrainedModel] = None,
+    _tokenizer: Optional[transformers.PreTrainedTokenizer] = None,
     tlens_device: str = "cuda",
     dtype: torch.dtype = torch.float32,
     supported_model_name: Optional[str] = None,
@@ -50,7 +51,8 @@ def load_hooked_transformer(
         MODEL_ALIASES[supported_model_name].append(model_name)
     tlens_model = transformer_lens.HookedTransformer.from_pretrained(
         model_name,
-        hf_model=hf_model,
+        hf_model=_hf_model,
+        tokenizer=_tokenizer,
         fold_ln=False,  # Keep layer norm where it is.
         center_writing_weights=False,
         center_unembed=False,
@@ -116,7 +118,8 @@ class TransformerLensTransparentLlm(TransparentLlm):
     def _model(self):
         tlens_model = load_hooked_transformer(
             self._model_name,
-            hf_model=self.hf_model,
+            _tokenizer=self.hf_tokenizer,
+            _hf_model=self.hf_model,
             tlens_device=self.device,
             dtype=self.dtype,
             supported_model_name=self._supported_model_name,

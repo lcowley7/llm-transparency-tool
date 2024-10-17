@@ -4,6 +4,9 @@
 # This source code is licensed under the license found in the
 # LICENSE file in the root directory of this source tree.
 
+# when running this use command: set PYTHONPATH=E:\AI Research\info_flow\llm-transparency-tool && streamlit run llm_transparency_tool/server/app.py -- config/local.json
+# run in CMD
+
 import argparse
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Tuple
@@ -18,6 +21,7 @@ import torch
 from jaxtyping import Float
 from torch.amp import autocast
 from transformers import HfArgumentParser
+from pyvis.network import Network
 
 import llm_transparency_tool.components
 from llm_transparency_tool.models.tlens_model import TransformerLensTransparentLlm
@@ -44,6 +48,7 @@ from llm_transparency_tool.server.utils import (
     possible_devices,
     run_model_with_session_caching,
     st_placeholder,
+    contrast_graphs,
 )
 from llm_transparency_tool.server.monitor import SystemMonitor
 
@@ -78,6 +83,7 @@ def cached_run_inference_and_populate_state(
 ):
     stateful_model = stateless_model.copy()
     stateful_model.run(sentences)
+    print(stateful_model)
     return stateful_model
 
 
@@ -162,7 +168,7 @@ class App:
         )
         st.dataframe(df, use_container_width=False)
 
-    def draw_dataset_selection(self) -> int:
+    def draw_dataset_selection(self) -> str:
         def update_dataset(filename: Optional[str]):
             dataset = load_dataset(filename) if filename is not None else []
             st.session_state["dataset"] = dataset
@@ -531,15 +537,34 @@ class App:
 
         with st.sidebar.expander("Graph", expanded=True):
             self._contribution_threshold = st.slider(
-                min_value=0.01,
+                min_value=0.00003,
                 max_value=0.1,
-                step=0.01,
+                step=0.00001,
                 value=0.04,
                 format=r"%.3f",
                 label="Contribution threshold",
             )
             self._renormalize_after_threshold = st.checkbox("Renormalize after threshold", value=True)
             self._normalize_before_unembedding = st.checkbox("Normalize before unembedding", value=True)
+
+        with st.sidebar.expander("Contrastive Method", expanded=False):
+            # Create the select box
+            options = ['Normal', 'Contrastive']
+            selected_option = st.selectbox("Choose an mode:", options, index=options.index('Normal'))
+            st.session_state.op_mode = selected_option
+            text_input_1 = st.text_input("String 1:")
+            text_input_2 = st.text_input("String 2:")
+            st.session_state.contr_str_1 = text_input_1
+            st.session_state.contr_str_2 = text_input_2
+            if (st.button("Contrast Strings") and st.session_state.op_mode == 'Contrastive'):
+                self.operation_mode = 'Contrastive'
+            else:
+                self.operation_mode = "Normal"
+
+        if self.operation_mode == "Contrastive":
+            self.cons_str1 = st.session_state.contr_str_1
+            self.cons_str2 = st.session_state.contr_str_2
+            print(self.cons_str1)
 
     def run_inference(self):
 
@@ -554,9 +579,44 @@ class App:
                 (self._contribution_threshold if self._renormalize_after_threshold else 0.0),
             )
 
+
+    def run_contrastive_inference(self):
+        """
+        This is where I will attempt to replicate the run_inference() method for the contrastive case, where I want to create 2 graphs and subtract them from eachother.
+        """
+
+        ### before we get here, we need to have a copy of each model and each sentence
+        # assuming we do, we would do something like:
+        with autocast(enabled=self.amp_enabled, device_type="cuda", dtype=self.dtype):
+            self._contrastive_model1 = cached_run_inference_and_populate_state(self.stateful_model, [self.cons_str1])
+            self._contrastive_model2 = cached_run_inference_and_populate_state(self.stateful_model, [self.cons_str2])
+
+        with autocast(enabled=self.amp_enabled, device_type="cuda", dtype=self.dtype):
+            self._contrast_graph1 = get_contribution_graph(
+                self._contrastive_model1,
+                self.model_key,
+                self._contrastive_model1.tokens()[B0].tolist(),
+                (self._contribution_threshold if self._renormalize_after_threshold else 0.0),
+            )
+            self._contrast_graph2 = get_contribution_graph(
+                self._contrastive_model2,
+                self.model_key,
+                self._contrastive_model2.tokens()[B0].tolist(),
+                (self._contribution_threshold if self._renormalize_after_threshold else 0.0),
+            )
+
+            self._contrast_graph = contrast_graphs(self._contrast_graph1, self._contrast_graph2)
+
+
+
     def draw_graph_and_selection(
         self,
     ) -> None:
+        """
+        Docstring relevant for the contrastive method only
+        This means that what I'm doing is showing the contrastive graph, but the actual model information and sentence is sentence 2 and model2
+        The effect of this is there may be a disconnect between the graph, and the promoted tokens we see and so forth.
+        """
         (
             container_graph,
             container_tokens,
@@ -574,6 +634,28 @@ class App:
         container_top_tokens_used = False
         container_token_dynamics.write('##### Promoted Tokens')
         container_token_dynamics_used = False
+
+        if self.operation_mode == "Contrastive":
+            print(f" initial graph: {self._graph}")
+            def save_interactive_graph(graph, title, filename):
+                net = Network(height="1000px", width="1000px", notebook=True)
+                
+                # Add nodes and edges
+                for node in graph.nodes:
+                    net.add_node(node, label=str(node))
+                    
+                for u, v, data in graph.edges(data=True):
+                    net.add_edge(u, v, value=abs(data['weight']), title=str(data['weight']))
+                
+                net.show_buttons(filter_=['physics'])  # Optional: show physics options for layout adjustment
+                net.show(filename)
+            save_interactive_graph(self._graph, "self.graph", "self_graph.html")
+            print(f" contrast graph1: {self._contrast_graph1}")
+            print(f" contrast graph1: {self._contrast_graph2}")
+            print(f"contrast_graph: {self._contrast_graph}")
+            self.sentence = self.cons_str2
+            self._stateful_model = self._contrastive_model2
+            self._graph = self._contrast_graph
 
         try:
 
@@ -644,6 +726,10 @@ class App:
             st.warning("No sentence selected")
         else:
             with torch.inference_mode():
+                if(self.operation_mode == "Contrastive"):
+                    self.run_contrastive_inference()
+                # may need to adjust here to reflect that I will eventually want to use my created graph, not their own
+                # I think it might just be easiest to override their graph
                 self.run_inference()
 
         self.draw_graph_and_selection()

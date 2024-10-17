@@ -15,6 +15,7 @@ import networkx as nx
 import pandas as pd
 import plotly.express
 import plotly.graph_objects as go
+import plotly.io as pio
 import streamlit as st
 import streamlit_extras.row as st_row
 import torch
@@ -43,6 +44,7 @@ from llm_transparency_tool.server.styles import (
 from llm_transparency_tool.server.utils import (
     B0,
     get_contribution_graph,
+    get_contribution_graph_contrast,
     load_dataset,
     load_model,
     possible_devices,
@@ -274,6 +276,9 @@ class App:
         fig.update_coloraxes(showscale=False)
 
         st.plotly_chart(fig, use_container_width=True, theme=None)
+        
+        # out_file_name = "_".join(tokens) + ".pdf"
+        # pio.write_image(fig, out_file_name, format="pdf")
 
     def draw_attn_info(self, edge: UiGraphEdge, container_attention_map) -> Optional[int]:
         """
@@ -537,9 +542,9 @@ class App:
 
         with st.sidebar.expander("Graph", expanded=True):
             self._contribution_threshold = st.slider(
-                min_value=0.00003,
+                min_value=0.00,
                 max_value=0.1,
-                step=0.00001,
+                step=0.001,
                 value=0.04,
                 format=r"%.3f",
                 label="Contribution threshold",
@@ -567,17 +572,67 @@ class App:
             print(self.cons_str1)
 
     def run_inference(self):
-
+        # We added pair mode to contrast results of two sentences.
+        is_pair_mode = False
         with autocast(enabled=self.amp_enabled, device_type="cuda", dtype=self.dtype):
-            self._stateful_model = cached_run_inference_and_populate_state(self.stateful_model, [self.sentence])
+            if " ||| " in self.sentence:
+                # in pair mode
+                base_sent, contrast_sent = self.sentence.split(" ||| ")
 
-        with autocast(enabled=self.amp_enabled, device_type="cuda", dtype=self.dtype):
-            self._graph = get_contribution_graph(
-                self.stateful_model,
-                self.model_key,
-                self.stateful_model.tokens()[B0].tolist(),
-                (self._contribution_threshold if self._renormalize_after_threshold else 0.0),
-            )
+                # set self._stateful_model to be the base model
+                self._stateful_model = cached_run_inference_and_populate_state(self.stateful_model, base_sent)
+                contrast_state = cached_run_inference_and_populate_state(self.stateful_model, contrast_sent)                
+                is_pair_mode = True
+                
+                n_tokens_base = self._stateful_model.tokens()[B0].shape[0]                
+                n_tokens_contrast = contrast_state.tokens()[B0].shape[0]
+                
+                assert n_tokens_base == n_tokens_contrast                
+            else:
+                self._stateful_model = cached_run_inference_and_populate_state(self.stateful_model, [self.sentence])
+
+        # Contrasting the logits is not suitable for visualization.
+        # if is_pair_mode:
+        #     d = self._stateful_model._last_run.cache.cache_dict
+        #     assert(isinstance(d, dict), type(d))
+        #     for key in d:
+        #         d[key] -= contrast_state._last_run.cache.cache_dict[key]
+        #     self._stateful_model._last_run.logits -= contrast_state._last_run.logits
+
+        if is_pair_mode:
+            with autocast(enabled=self.amp_enabled, device_type="cuda", dtype=self.dtype):
+                # set the app graph to use base state first
+                self._graph = get_contribution_graph_contrast(
+                    self._stateful_model,
+                    contrast_state,
+                    self.model_key,
+                    self._stateful_model.tokens()[B0].tolist(),
+                    (self._contribution_threshold if self._renormalize_after_threshold else 0.0),
+                )
+
+                # contrast_graph = get_contribution_graph(
+                #     contrast_state,
+                #     self.model_key,
+                #     contrast_state.tokens()[B0].tolist(),
+                #     (self._contribution_threshold if self._renormalize_after_threshold else 0.0),
+                # )
+
+            # # contrast graph from state1 with graph from state2
+            # for u, v, a in self._graph.edges(data=True):
+            #     for key, value in a.items():
+            #         self._graph[u][v][key] = value - contrast_graph[u][v][key]
+            # for v, a in self._graph.nodes(data=True):
+            #     for key, value in a.items():
+            #         self._graph[v][key] = value - contrast_graph[v][key]
+
+        else:
+            with autocast(enabled=self.amp_enabled, device_type="cuda", dtype=self.dtype):
+                self._graph = get_contribution_graph(
+                    self.stateful_model,
+                    self.model_key,
+                    self.stateful_model.tokens()[B0].tolist(),
+                    (self._contribution_threshold if self._renormalize_after_threshold else 0.0),
+                )
 
 
     def run_contrastive_inference(self):
@@ -620,7 +675,18 @@ class App:
         (
             container_graph,
             container_tokens,
-        ) = st.columns(self.render_settings.column_proportions)
+        ) = st.columns(self.render_settings.column_proportions)        
+        # # Define CSS for horizontal scrolling
+        # scroll_css = """
+        # <style>
+        # .scrollable {
+        #     overflow-x: auto;
+        #     white-space: nowrap;
+        # }
+        # </style>
+        # """
+        # # Inject CSS into the Streamlit app
+        # st.markdown(scroll_css, unsafe_allow_html=True)
 
         container_graph_left, container_graph_right = container_graph.columns([5, 1])
 
@@ -635,27 +701,18 @@ class App:
         container_token_dynamics.write('##### Promoted Tokens')
         container_token_dynamics_used = False
 
-        if self.operation_mode == "Contrastive":
-            print(f" initial graph: {self._graph}")
-            def save_interactive_graph(graph, title, filename):
-                net = Network(height="1000px", width="1000px", notebook=True)
+# review here
+        #if self.operation_mode == "Contrastive":
+    # maybe this section here isn't helpful
+         #   self.sentence = self.cons_str2
+          #  self._stateful_model = self._contrastive_model2
+           # self._graph = self._contrast_graph
+
                 
-                # Add nodes and edges
-                for node in graph.nodes:
-                    net.add_node(node, label=str(node))
-                    
-                for u, v, data in graph.edges(data=True):
-                    net.add_edge(u, v, value=abs(data['weight']), title=str(data['weight']))
-                
-                net.show_buttons(filter_=['physics'])  # Optional: show physics options for layout adjustment
-                net.show(filename)
-            save_interactive_graph(self._graph, "self.graph", "self_graph.html")
-            print(f" contrast graph1: {self._contrast_graph1}")
-            print(f" contrast graph1: {self._contrast_graph2}")
-            print(f"contrast_graph: {self._contrast_graph}")
-            self.sentence = self.cons_str2
-            self._stateful_model = self._contrastive_model2
-            self._graph = self._contrast_graph
+        # with container_graph_left:
+        #     # Add scrollable css to the div wrapping left graph
+        #     st.markdown('<div class="scrollable">', unsafe_allow_html=True)
+
 
         try:
 
@@ -663,7 +720,10 @@ class App:
                 return
 
             with container_graph_left:
-                selection = self.draw_graph(self._contribution_threshold if not self._renormalize_after_threshold else 0.0)
+                selection = self.draw_graph(self._contribution_threshold if not self._renormalize_after_threshold else 0.0) 
+                # # Close scrollable css div               
+                # st.markdown('</div>', unsafe_allow_html=True)
+
 
             if selection is None:
                 return

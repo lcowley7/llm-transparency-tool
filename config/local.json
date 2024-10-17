@@ -4,13 +4,13 @@
     "debug": true,
     "models": {
         "": null,
-
         "meta-llama/Meta-Llama-3-8B": null,
         "meta-llama/Meta-Llama-3-70B": null,
-        "meta-llama/Meta-Llama-3-8B-Instruct": "E:/AI Research//meta-llama//Meta-Llama-3-8B-Instruct",
+        "meta-llama/Meta-Llama-3-8B-Instruct": null,
         "meta-llama/Meta-Llama-3-70B-Instruct": null,
         "mistral/mixtral-instruct": null,
-
+	      "LLM360/Amber": null,
+        "LLM360/K2": null, 
         "gpt2": null,
         "distilgpt2": null,
         "facebook/opt-125m": null,

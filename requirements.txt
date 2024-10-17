@@ -1,0 +1,14 @@
+datasets
+einops
+fancy_einsum
+jaxtyping
+networkx
+plotly
+pyinstrument
+setuptools
+streamlit
+streamlit_extras
+tokenizers
+transformer_lens
+transformers
+pytest  # fixes wrong dependencies of transformer_lens

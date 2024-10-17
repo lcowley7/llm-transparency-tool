@@ -94,7 +94,7 @@ def build_full_graph(
     n_tokens = model.tokens()[batch_i].shape[0]
 
     builder = GraphBuilder(n_layers, n_tokens)
-
+    
     for layer in range(n_layers):
         c_attn, c_resid_attn = contributions.get_attention_contributions(
             resid_pre=model.residual_in(layer)[batch_i].unsqueeze(0),
@@ -119,6 +119,74 @@ def build_full_graph(
             resid_mid=model.residual_after_attn(layer)[batch_i].unsqueeze(0),
             resid_post=model.residual_out(layer)[batch_i].unsqueeze(0),
             mlp_out=model.ffn_out(layer)[batch_i].unsqueeze(0),
+        )
+        if renormalizing_threshold is not None:
+            c_ffn, c_resid_ffn = contributions.apply_threshold_and_renormalize(
+                renormalizing_threshold, c_ffn, c_resid_ffn
+            )
+        for token in range(n_tokens):
+            builder.add_ffn_edge(layer, token, c_ffn[batch_i, token].item())
+            builder.add_residual_to_ffn(
+                layer, token, c_resid_ffn[batch_i, token].item()
+            )
+
+    return builder.graph
+
+
+@torch.no_grad()
+def build_full_graph_with_contrast(
+    model: TransparentLlm,
+    model_contrast: TransparentLlm, 
+    batch_i: int = 0,
+    renormalizing_threshold: Optional[float] = None,
+) -> nx.Graph:
+    """
+    Build the contribution graph with a base model and a contrast model.
+
+    model: The transparent llm which already did the inference.
+    model_contrast: Another transparent llm which already did the inference, 
+      must have the same architecture and inferenced with the same tokens of the base.
+    batch_i: Which sentence to use from the batch that was given to the model.
+    renormalizing_threshold: If specified, will apply renormalizing thresholding to the
+      contributions. All contributions below the threshold will be erazed and the rest
+      will be renormalized.
+    """
+    n_layers = model.model_info().n_layers
+    n_tokens = model.tokens()[batch_i].shape[0]
+    
+    c_n_layers = model_contrast.model_info().n_layers
+    c_n_tokens = model_contrast.tokens()[batch_i].shape[0]
+    
+    assert n_layers == c_n_layers
+    assert n_tokens == c_n_tokens
+
+    builder = GraphBuilder(n_layers, n_tokens)
+
+    # For both residual edges, and weight edges, do minus and divide by 2
+    for layer in range(n_layers):        
+        c_attn, c_resid_attn = contributions.get_attention_contributions(
+            resid_pre=(model.residual_in(layer)[batch_i].unsqueeze(0) - model_contrast.residual_in(layer)[batch_i].unsqueeze(0))/2,
+            resid_mid=(model.residual_after_attn(layer)[batch_i].unsqueeze(0) - model_contrast.residual_after_attn(layer)[batch_i].unsqueeze(0))/2,
+            decomposed_attn=(model.decomposed_attn(batch_i, layer).unsqueeze(0) - model_contrast.decomposed_attn(batch_i, layer).unsqueeze(0))/2,
+        )
+        if renormalizing_threshold is not None:
+            c_attn, c_resid_attn = contributions.apply_threshold_and_renormalize(
+                renormalizing_threshold, c_attn, c_resid_attn
+            )
+        for token_from in range(n_tokens):
+            for token_to in range(n_tokens):
+                # Sum attention contributions over heads.
+                c = c_attn[batch_i, token_to, token_from].sum().item()
+                builder.add_attention_edge(layer, token_from, token_to, c)
+        for token in range(n_tokens):
+            builder.add_residual_to_attn(
+                layer, token, c_resid_attn[batch_i, token].item()
+            )
+
+        c_ffn, c_resid_ffn = contributions.get_mlp_contributions(
+            resid_mid=(model.residual_after_attn(layer)[batch_i].unsqueeze(0) - model_contrast.residual_after_attn(layer)[batch_i].unsqueeze(0))/2,
+            resid_post=(model.residual_out(layer)[batch_i].unsqueeze(0) - model_contrast.residual_out(layer)[batch_i].unsqueeze(0))/2,
+            mlp_out=(model.ffn_out(layer)[batch_i].unsqueeze(0) - model_contrast.ffn_out(layer)[batch_i].unsqueeze(0))/2,
         )
         if renormalizing_threshold is not None:
             c_ffn, c_resid_ffn = contributions.apply_threshold_and_renormalize(

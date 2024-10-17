@@ -134,6 +134,38 @@ def get_contribution_graph(
         threshold,
     )
 
+@st.cache_resource(
+    hash_funcs={
+        TransformerLensTransparentLlm: id
+    }
+)
+def get_contribution_graph_contrast(
+    base_model: TransparentLlm,
+    contrast_model: TransparentLlm,
+    model_key: str,
+    tokens: List[str],    
+    threshold: float,    
+) -> nx.Graph:
+    """Get the graph by using the contrast of the two models.
+    
+    Use object id for models, and added model_key and tokens for hashing purposes
+
+    Args:
+        base_model (TransparentLlm): Model 1, the one to be contrast
+        contrast_model (TransparentLlm): Model 2, the one to compare
+        threshold (float): Threshold to keep the edge.
+
+    Returns:
+        nx.Graph: Resulting graph.
+    """
+    
+    return llm_transparency_tool.routes.graph.build_full_graph_with_contrast(
+        base_model,
+        contrast_model,
+        B0,
+        threshold,
+    ) 
+
 
 def st_placeholder(
     text: str,

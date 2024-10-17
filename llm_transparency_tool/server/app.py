@@ -4,6 +4,9 @@
 # This source code is licensed under the license found in the
 # LICENSE file in the root directory of this source tree.
 
+
+# command to call to run:  set PYTHONPATH=E:\AI Research\info_flow2\llm-transparency-tool && streamlit run llm_transparency_tool/server/app.py -- config/local.json
+
 import argparse
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Tuple

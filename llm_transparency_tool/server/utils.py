@@ -8,9 +8,11 @@ import uuid
 from typing import List, Optional, Tuple
 
 import networkx as nx
+import statistics
 import streamlit as st
 import torch
 import transformers
+from pyvis.network import Network
 
 import llm_transparency_tool.routes.graph
 from llm_transparency_tool.models.tlens_model import TransformerLensTransparentLlm
@@ -49,6 +51,7 @@ def load_model(
     _device: str,
     _model_path: Optional[str] = None,
     _dtype: torch.dtype = torch.float32,
+    supported_model_name: Optional[str] = None,
 ) -> TransparentLlm:
     """
     Returns the loaded model along with its key. The key is just a unique string which
@@ -56,8 +59,17 @@ def load_model(
     """
     assert _device in possible_devices()
 
-    causal_lm = None
-    tokenizer = None
+
+    # have adjusted to now allow locally stored models, there is a downside though
+    # this will cause other problems later on if the model isn't supported by TransformerLens or HookedTransformer
+    if _model_path:
+        causal_lm = transformers.AutoModelForCausalLM.from_pretrained(_model_path)
+        tokenizer = transformers.AutoTokenizer.from_pretrained(_model_path)
+    else:
+        causal_lm = None
+        tokenizer = None
+
+    
 
     tl_lm = TransformerLensTransparentLlm(
         model_name=model_name,
@@ -65,6 +77,7 @@ def load_model(
         tokenizer=tokenizer,
         device=_device,
         dtype=_dtype,
+        supported_model_name=supported_model_name,
     )
 
     return tl_lm
@@ -163,3 +176,94 @@ def st_placeholder(
     empty = container.empty()
     empty.container(border=border, height=height).write(f'<small>{text}</small>', unsafe_allow_html=True)
     return empty
+
+
+def contrast_graphs(graph1: nx.Graph, graph2: nx.Graph) -> nx.Graph:
+    """
+    I think this implements Hector's contrastive method, but I'm not certain, his thesis is vague about how E(G1) - E(G2) is calculated
+    I could potentially add abs() in somewhere if there is bugs.
+    """
+
+    def save_interactive_graph(graph, title, filename):
+        net = Network(height="1000px", width="1000px", notebook=True)
+        
+        # Add nodes and edges
+        for node in graph.nodes:
+            net.add_node(node, label=str(node))
+            
+        for u, v, data in graph.edges(data=True):
+            net.add_edge(u, v, value=abs(data['weight']), title=str(data['weight']))
+        
+        net.show_buttons(filter_=['physics'])  # Optional: show physics options for layout adjustment
+        net.show(filename)
+
+    
+    def median_edge_weight(graph: nx.Graph) -> float:
+        # Extract all edge weights into a list
+        weights = [data["weight"] for _, _, data in graph.edges(data=True)]
+        
+        # Calculate and return the median of the edge weights
+        return statistics.median(weights) if weights else 0.0
+
+    def find_attention_edge_difference(graph1: nx.Graph, graph2: nx.Graph) -> nx.Graph:
+        """
+        Finds the difference in attention edges between two graphs, focusing only on edges
+        involving attention nodes ('A' nodes). If an edge exists, its weight is adjusted,
+        otherwise it is created with the appropriate weight.
+        
+        graph1: The first graph (e.g., the reference or base graph).
+        graph2: The second graph (e.g., the graph to compare against the first).
+        
+        Returns:
+            A new graph with the same nodes as the input graphs and edges that represent
+            the difference in attention weights between the two graphs, but only for edges
+            involving attention nodes.
+        """
+        # Initialize a new directed graph for the difference
+        diff_graph = nx.DiGraph()
+        
+        # Add all nodes from graph1 (and graph2, since they should have the same nodes)
+        diff_graph.add_nodes_from(graph1.nodes())
+        
+        # Function to determine if a node is an attention node
+        def is_attention_or_resid_node(node):
+            return (node.startswith("A") or node.startswith("I"))
+
+        # Iterate over edges in graph1 and calculate the difference with graph2
+        for u, v, data in graph1.edges(data=True):
+            # Only consider edges involving attention nodes
+            if is_attention_or_resid_node(u) and is_attention_or_resid_node(v):
+                weight1 = data["weight"]
+                if graph2.has_edge(u, v):
+                    weight2 = graph2[u][v]["weight"]
+                    weight_diff = weight1 - weight2
+                    if weight_diff >= 0:
+                        # If edge exists in diff_graph, update the weight
+                        if diff_graph.has_edge(u, v):
+                            diff_graph[u][v]["weight"] += weight_diff
+                        else:
+                            diff_graph.add_edge(u, v, weight=weight_diff)
+                else:
+                    # Edge only in graph1
+                    if diff_graph.has_edge(u, v):
+                        diff_graph[u][v]["weight"] += weight1 # was previously weight1 / was 0
+                    else:
+                        diff_graph.add_edge(u, v, weight=weight1) # was previously weight1 / was 0 
+        
+        # Iterate over edges in graph2 that are not in graph1
+        for u, v, data in graph2.edges(data=True):
+            # Only consider edges involving attention nodes
+            if is_attention_or_resid_node(u) and is_attention_or_resid_node(v):
+                if not graph1.has_edge(u, v):
+                    weight2 = data["weight"]
+                    # Add the edge with negative weight to indicate it was only in graph2
+                    if diff_graph.has_edge(u, v):
+                        diff_graph[u][v]["weight"] -= weight2
+                    else:
+                        diff_graph.add_edge(u, v, weight=-weight2)
+        
+        return diff_graph
+
+    diff_graph = find_attention_edge_difference(graph1, graph2)
+    print(f"meidan edge weight: {median_edge_weight(diff_graph)}")
+    return diff_graph

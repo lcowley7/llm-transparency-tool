@@ -4,6 +4,11 @@
     "debug": true,
     "models": {
         "": null,
+        "meta-llama/Meta-Llama-3-8B": null,
+        "meta-llama/Meta-Llama-3-70B": null,
+        "meta-llama/Meta-Llama-3-8B-Instruct": null,
+        "meta-llama/Meta-Llama-3-70B-Instruct": null,
+        "mistral/mixtral-instruct": null,
 	      "LLM360/Amber": null,
         "LLM360/K2": null, 
         "gpt2": null,
@@ -25,6 +30,9 @@
 
         "meta-llama/Llama-2-13b-hf": null,
         "meta-llama/Llama-2-13b-chat-hf": null,
+
+        "meta-llama/Llama-2-70b-hf": null,
+        "meta-llama/Llama-2-70b-chat-hf": null,
 
 
         "gpt2-medium": null,

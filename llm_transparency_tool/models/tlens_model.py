@@ -16,6 +16,7 @@ from typeguard import typechecked
 import streamlit as st
 
 from llm_transparency_tool.models.transparent_llm import ModelInfo, TransparentLlm
+from transformer_lens.loading_from_pretrained import MODEL_ALIASES, get_official_model_name
 
 
 @dataclass
@@ -35,15 +36,20 @@ class _RunInfo:
 )
 def load_hooked_transformer(
     model_name: str,
-    hf_model: Optional[transformers.PreTrainedModel] = None,
+    _hf_model: Optional[transformers.PreTrainedModel] = None,
+    _tokenizer: Optional[transformers.PreTrainedTokenizer] = None,
     tlens_device: str = "cuda",
     dtype: torch.dtype = torch.float32,
+    supported_model_name: Optional[str] = None,
     model_revision: Optional[str] = None,
 ):
-    # if tlens_device == "cuda":
-    #     n_devices = torch.cuda.device_count()
-    # else:
-    #     n_devices = 1
+    if supported_model_name is None:
+        supported_model_name = model_name
+    supported_model_name = get_official_model_name(supported_model_name)
+    if model_name not in MODEL_ALIASES:
+        MODEL_ALIASES[supported_model_name] = []
+    if model_name not in MODEL_ALIASES[supported_model_name]:
+        MODEL_ALIASES[supported_model_name].append(model_name)
 
     from_pretrained_kwargs = {}
     if not model_revision is None:
@@ -51,14 +57,15 @@ def load_hooked_transformer(
             "revision": model_revision,
         }
 
+
     tlens_model = transformer_lens.HookedTransformer.from_pretrained(
         model_name,
-        hf_model=hf_model,
+        hf_model=_hf_model,
+        tokenizer=_tokenizer,
         fold_ln=False,  # Keep layer norm where it is.
         center_writing_weights=False,
         center_unembed=False,
         device=tlens_device,
-        # n_devices=n_devices,
         dtype=dtype,
         **from_pretrained_kwargs
     )
@@ -89,6 +96,7 @@ class TransformerLensTransparentLlm(TransparentLlm):
         tokenizer: Optional[transformers.PreTrainedTokenizer] = None,
         device: str = "gpu",
         dtype: torch.dtype = torch.float32,
+        supported_model_name: str = None,
         model_revision: Optional[str] = None,
     ):
         if device == "gpu":
@@ -106,6 +114,7 @@ class TransformerLensTransparentLlm(TransparentLlm):
 
         # self._model = tlens_model
         self._model_name = model_name
+        self._supported_model_name = supported_model_name
         self._prepend_bos = True
         self._last_run = None
         self._run_exception = RuntimeError(
@@ -122,26 +131,25 @@ class TransformerLensTransparentLlm(TransparentLlm):
 
     @property
     def _model(self):
-        # TODO: Original implementation always reload the model here, why?
-        if self.__loaded_model is None:
-            tlens_model = load_hooked_transformer(
-                self._model_name,
-                hf_model=self.hf_model,
-                tlens_device=self.device,
-                dtype=self.dtype,
-                model_revision=self._model_revision,
-            )
+        tlens_model = load_hooked_transformer(
+            self._model_name,
+            _tokenizer=self.hf_tokenizer,
+            _hf_model=self.hf_model,
+            tlens_device=self.device,
+            dtype=self.dtype,
+            supported_model_name=self._supported_model_name,
+            model_revision=self._model_revision,
+        )
 
-            if self.hf_tokenizer is not None:
-                tlens_model.set_tokenizer(self.hf_tokenizer, default_padding_side="left")
+        if self.hf_tokenizer is not None:
+            tlens_model.set_tokenizer(self.hf_tokenizer, default_padding_side="left")
 
-            tlens_model.set_use_attn_result(True)
-            tlens_model.set_use_attn_in(False)
-            tlens_model.set_use_split_qkv_input(False)
-            
-            self.__loaded_model = tlens_model
-            
-        return self.__loaded_model
+        tlens_model.set_use_attn_result(True)
+        tlens_model.set_use_attn_in(False)
+        tlens_model.set_use_split_qkv_input(False)
+
+        return tlens_model
+
 
     def model_info(self) -> ModelInfo:
         cfg = self._model.cfg
@@ -199,10 +207,10 @@ class TransformerLensTransparentLlm(TransparentLlm):
             normalized = self._model.ln_final(tdim)
             result = self._model.unembed(normalized)
         else:
-            result = self._model.unembed(tdim)
+            result = self._model.unembed(tdim.to(self.dtype))
         return result[0][0]
 
-    def _get_block(self, layer: int, block_name: str) -> str:
+    def _get_block(self, layer: int, block_name: str) -> torch.Tensor:
         if not self._last_run:
             raise self._run_exception
         return self._last_run.cache[f"blocks.{layer}.{block_name}"]
